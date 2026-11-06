@@ -54,6 +54,7 @@ Sub ZCO002_FS10N_Final_DirektAktarim()
     Dim pc As PivotCache, pt As PivotTable, pTable As PivotTable
     Dim ilkPlant As Boolean, silVar As Boolean, hataOldu As Boolean, okundu As Boolean
     Dim eskiHesaplama As XlCalculation
+    Dim tempDosyalar As New Collection, yol As Variant
 
     eskiHesaplama = Application.Calculation
     On Error GoTo HataYakala
@@ -140,6 +141,7 @@ Sub ZCO002_FS10N_Final_DirektAktarim()
 
         dosyaAdi = "ZCO002_Temp_" & aktifPlant & ".xlsx"
         tamYol = downloadPath & dosyaAdi
+        tempDosyalar.Add tamYol           ' sonda SAP'nin actigi kopyalari kapatmak icin
 
         ' Onceki calismadan acik kalmis kopya varsa kapat, eski dosyayi sil
         DosyayiKapat dosyaAdi
@@ -448,6 +450,12 @@ Kapanis:
     If Not wbTemp Is Nothing Then wbTemp.Close False
     If Not wbAnaveri Is Nothing Then wbAnaveri.Close False
 
+    ' SAP'nin kendi actigi (cogu zaman ayri Excel penceresi) temp dosyalari kapat ve sil
+    Application.StatusBar = "Gecici dosyalar kapatiliyor..."
+    For Each yol In tempDosyalar
+        SapExcelKapat CStr(yol)
+    Next yol
+
     Application.Calculation = eskiHesaplama
     Application.EnableEvents = True
     Application.ScreenUpdating = True
@@ -523,6 +531,43 @@ Private Sub DosyayiKapat(ByVal ad As String)
     On Error Resume Next
     Set wb = Workbooks(ad)
     If Not wb Is Nothing Then wb.Close SaveChanges:=False
+End Sub
+
+' Dosya baska bir program/Excel penceresinde acik (kilitli) mi?
+Private Function DosyaKilitliMi(ByVal yol As String) As Boolean
+    Dim f As Integer
+    If Len(Dir(yol)) = 0 Then Exit Function
+    f = FreeFile
+    On Error Resume Next
+    Open yol For Binary Access Read Write Lock Read Write As #f
+    DosyaKilitliMi = (Err.Number <> 0)
+    Close #f
+End Function
+
+' SAP'nin actigi temp dosyayi HANGI Excel penceresinde olursa olsun kapat, sonra sil.
+' Workbooks("ad") sadece bu Excel'i gorur; GetObject(tamYol) diger Excel
+' orneklerinde acik dosyayi da bulur.
+Private Sub SapExcelKapat(ByVal yol As String)
+    Dim wb As Object, app As Object, n As Long
+    On Error Resume Next
+    For n = 1 To 5
+        If Not DosyaKilitliMi(yol) Then Exit For
+        Set wb = Nothing: Set app = Nothing
+        Set wb = GetObject(yol)
+        If Not wb Is Nothing Then
+            Set app = wb.Application
+            wb.Close SaveChanges:=False
+            ' Baska Excel ornegi bos kaldiysa onu da kapat (bizimkine dokunma)
+            If Not app Is Nothing Then
+                If app.Hwnd <> Application.Hwnd And app.Workbooks.Count = 0 Then app.Quit
+            End If
+        End If
+        Sleep 300
+        DoEvents
+    Next n
+    If Not DosyaKilitliMi(yol) Then
+        If Len(Dir(yol)) > 0 Then Kill yol
+    End If
 End Sub
 
 ' Sayfadaki herhangi bir sutunda dolu olan son satir (bos sayfa -> 0)
